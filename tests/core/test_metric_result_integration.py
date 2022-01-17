@@ -348,7 +348,8 @@ def test_lightning_module_logging_result_collection(tmpdir, device):
         limit_train_batches=2,
         limit_val_batches=2,
         callbacks=[ckpt],
-        gpus=1 if device == "cuda" else 0,
+        accelerator="gpu" if device == "cuda" else "cpu",
+        devices=1,
     )
     trainer.fit(model)
 
@@ -370,7 +371,7 @@ class DummyMeanMetric(Metric):
         return f"{self.__class__.__name__}(sum={self.sum}, count={self.count})"
 
 
-def result_collection_reload(devices=1, **kwargs):
+def result_collection_reload(accelerator="auto", devices=1, **kwargs):
     """This test is going to validate _ResultCollection is properly being reload and final accumulation with Fault
     Tolerant Training is correct."""
 
@@ -442,7 +443,13 @@ def result_collection_reload(devices=1, **kwargs):
                 self.has_validated_sum = True
 
     model = ExtendedBoringModel()
-    trainer_kwargs = {"max_epochs": 1, "limit_train_batches": 5, "limit_val_batches": 0}
+    trainer_kwargs = {
+        "max_epochs": 1,
+        "limit_train_batches": 5,
+        "limit_val_batches": 0,
+        "accelerator": accelerator,
+        "devices": devices,
+    }
     trainer_kwargs.update(kwargs)
     trainer = Trainer(**trainer_kwargs)
 
