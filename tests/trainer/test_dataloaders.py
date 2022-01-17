@@ -809,7 +809,7 @@ def test_iterable_dataset_stop_iteration_at_epoch_beginning(yield_at_all):
     )
     trainer.fit(model, train_dataloaders=train_dataloader)
     assert trainer.global_step == 2 * yield_at_all
-    # even though the generator might not yield any data, the fit_loop runs still advances so the
+    # even though the generator might not yield any data, the fit_loop still advances so the
     # current epoch gets increased
     assert trainer.current_epoch == 2
 
