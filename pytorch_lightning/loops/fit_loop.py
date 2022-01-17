@@ -38,7 +38,7 @@ class FitLoop(Loop[None]):
 
     def __init__(
         self,
-        min_epochs: Optional[int] = 0,
+        min_epochs: int = 0,
         max_epochs: int = 1000,
     ) -> None:
         super().__init__()
@@ -279,10 +279,7 @@ class FitLoop(Loop[None]):
         if self.epoch_loop._num_ready_batches_reached():
             self.epoch_loop.update_lr_schedulers("epoch", update_plateau_schedulers=True)
 
-            # TODO(@carmocca): remove this check after implementing `loop.stop()`. This is required by
-            # tests/loops/test_training_loop.py::test_should_stop_mid_epoch
-            # if not self.trainer.should_stop:
-            self.epoch_progress.increment_completed()
+        self.epoch_progress.increment_completed()
 
         # the global step is manually decreased here due to backwards compatibility with existing loggers
         # as they expect that the same step is used when logging epoch end metrics even when the batch loop has

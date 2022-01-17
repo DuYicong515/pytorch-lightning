@@ -339,7 +339,6 @@ class Trainer(
                 To enable infinite training, set ``max_epochs = -1``.
 
             min_epochs: Force training for at least these many epochs. Disabled by default (None).
-                If both min_epochs and min_steps are not specified, defaults to ``min_epochs = 0``.
 
             max_steps: Stop training after this number of steps. Disabled by default (-1). If ``max_steps = -1``
                 and ``max_epochs = None``, will default to ``max_epochs = 1000``. To enable infinite training, set
@@ -2364,7 +2363,7 @@ class Trainer(
         return self.fit_loop.max_epochs
 
     @property
-    def min_epochs(self) -> Optional[int]:
+    def min_epochs(self) -> int:
         return self.fit_loop.min_epochs
 
     @property
