@@ -103,15 +103,14 @@ class TrainingEpochLoop(loops.Loop[_OUTPUTS_TYPE]):
     @property
     def done(self) -> bool:
         """Evaluates when to leave the loop."""
-        should_stop = self.trainer.should_stop
-        if should_stop:
-            should_stop = self.global_step >= self.min_steps if self.min_steps else True
-            if not should_stop:
+        if self.trainer.should_stop and self.min_steps:
+            self.trainer.should_stop = self.global_step >= self.min_steps
+            if not self.trainer.should_stop:
                 log.info(
                     f"Trainer was signaled to stop but required minimum steps ({self.min_steps}) has not been met."
                     " Training will continue..."
                 )
-        return (self._is_training_done and self._is_validation_done) or should_stop
+        return (self._is_training_done and self._is_validation_done) or self.trainer.should_stop
 
     def connect(  # type: ignore[override]
         self,

@@ -159,15 +159,14 @@ class FitLoop(Loop[None]):
         stop_steps = _is_max_limit_reached(self.global_step, self.max_steps)
         stop_epochs = _is_max_limit_reached(self.epoch_progress.current.processed, self.max_epochs)
 
-        should_stop = self.trainer.should_stop
-        if should_stop:
-            should_stop = self.epoch_progress.current.processed >= self.min_epochs if self.min_epochs else True
-            if not should_stop:
+        if self.trainer.should_stop and self.min_epochs:
+            self.trainer.should_stop = self.epoch_progress.current.processed >= self.min_epochs
+            if not self.trainer.should_stop:
                 log.info(
                     f"Trainer was signaled to stop but required minimum epochs ({self.min_epochs}) has not been met."
                     " Training will continue..."
                 )
-        return stop_steps or should_stop or stop_epochs or self.trainer.num_training_batches == 0
+        return stop_steps or self.trainer.should_stop or stop_epochs or self.trainer.num_training_batches == 0
 
     @property
     def skip(self) -> bool:
