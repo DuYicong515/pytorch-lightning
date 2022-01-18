@@ -13,7 +13,8 @@
 # limitations under the License.
 import importlib
 import logging
-from copy import deepcopy
+import os
+import uuid
 from functools import wraps
 from typing import Any, Dict, Optional, Sequence
 
@@ -23,15 +24,12 @@ from torch.optim.lr_scheduler import _LRScheduler
 
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import Callback
-from pytorch_lightning.core.optimizer import (
-    _get_default_scheduler_config,
-    _init_optimizers_and_lr_schedulers,
-    _set_scheduler_opt_idx,
-)
+from pytorch_lightning.core.optimizer import _init_optimizers_and_lr_schedulers, _set_scheduler_opt_idx
 from pytorch_lightning.loggers.base import DummyLogger
 from pytorch_lightning.utilities import rank_zero_warn
 from pytorch_lightning.utilities.exceptions import MisconfigurationException
 from pytorch_lightning.utilities.parsing import lightning_hasattr, lightning_setattr
+from pytorch_lightning.utilities.types import LRSchedulerConfig
 
 # check if ipywidgets is installed before importing tqdm.auto
 # to ensure it won't fail and a progress bar is displayed
@@ -125,13 +123,11 @@ class _LRFinder:
 
             args = (optimizer, self.lr_max, self.num_training)
             scheduler = _LinearLR(*args) if self.mode == "linear" else _ExponentialLR(*args)
-            sched_config = _get_default_scheduler_config()
-            sched_config.update({"scheduler": scheduler, "interval": "step", "opt_idx": 0})
 
             trainer.strategy.optimizers = [optimizer]
-            trainer.strategy.lr_schedulers = [sched_config]
+            trainer.strategy.lr_schedulers = [LRSchedulerConfig(scheduler, interval="step", opt_idx=0)]
             trainer.strategy.optimizer_frequencies = []
-            _set_scheduler_opt_idx(trainer.optimizers, trainer.lr_schedulers)
+            _set_scheduler_opt_idx(trainer.optimizers, trainer.lr_scheduler_configs)
 
         return func
 
@@ -206,7 +202,9 @@ def lr_find(
     if update_attr:
         lr_attr_name = _determine_lr_attr_name(trainer, model)
 
-    state_dict = deepcopy(trainer.checkpoint_connector.dump_checkpoint())
+    # Save initial model, that is loaded after learning rate is found
+    ckpt_path = os.path.join(trainer.default_root_dir, f".lr_find_{uuid.uuid4()}.ckpt")
+    trainer.save_checkpoint(ckpt_path)
     params = __lr_finder_dump_params(trainer)
 
     # Set to values that are required by the algorithm
@@ -234,8 +232,8 @@ def lr_find(
     lr_finder._total_batch_idx = trainer.fit_loop.total_batch_idx  # for debug purpose
 
     # Restore initial state of model
-    trainer.checkpoint_connector._loaded_checkpoint = state_dict
-    trainer.checkpoint_connector.restore(None)
+    trainer.checkpoint_connector.restore(ckpt_path)
+    trainer.strategy.remove_checkpoint(ckpt_path)
     __lr_finder_restore_params(trainer, params)
 
     if trainer.progress_bar_callback:
@@ -272,7 +270,7 @@ def __lr_finder_reset_params(trainer: "pl.Trainer", num_training: int, early_sto
     # Max step set to number of iterations
     trainer.fit_loop.max_steps = num_training
     # Required for saving the model
-    trainer.optimizers, trainer.lr_schedulers = [], []
+    trainer.optimizers, trainer.strategy.lr_schedulers = [], []
 
 
 def __lr_finder_restore_params(trainer: "pl.Trainer", params: Dict[str, Any]) -> None:
@@ -324,7 +322,7 @@ class _LRCallback(Callback):
         if self.progress_bar_refresh_rate and self.progress_bar is None:
             self.progress_bar = tqdm(desc="Finding best initial lr", total=self.num_training)
 
-        self.lrs.append(trainer.lr_schedulers[0]["scheduler"].lr[0])
+        self.lrs.append(trainer.lr_scheduler_configs[0].scheduler.lr[0])
 
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
         """Called when the training batch ends, logs the calculated loss."""

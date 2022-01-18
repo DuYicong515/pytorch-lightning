@@ -12,12 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License
 import logging
-from copy import deepcopy
+import os
+import uuid
 from typing import Any, Dict, Optional, Tuple
 
 from torch.utils.data import DataLoader
 
 import pytorch_lightning as pl
+from pytorch_lightning.loggers.base import DummyLogger
 from pytorch_lightning.utilities import rank_zero_warn
 from pytorch_lightning.utilities.data import has_len_all_ranks
 from pytorch_lightning.utilities.exceptions import MisconfigurationException
@@ -56,7 +58,9 @@ def scale_batch_size(
             " Please disable the feature or incorporate the dataloader into the model."
         )
 
-    state_dict = deepcopy(trainer.checkpoint_connector.dump_checkpoint())
+    # Save initial model, that is loaded after batch size is found
+    ckpt_path = os.path.join(trainer.default_root_dir, f".scale_batch_size_{uuid.uuid4()}.ckpt")
+    trainer.save_checkpoint(ckpt_path)
     params = __scale_batch_dump_params(trainer)
 
     # Set to values that are required by the algorithm
@@ -78,19 +82,24 @@ def scale_batch_size(
     log.info(f"Finished batch size finder, will continue with full run using batch size {new_size}")
 
     # Restore initial state of model
-    trainer.checkpoint_connector._loaded_checkpoint = state_dict
-    trainer.checkpoint_connector.restore(None)
+    trainer.checkpoint_connector.restore(ckpt_path)
+    trainer.strategy.remove_checkpoint(ckpt_path)
     __scale_batch_restore_params(trainer, params)
+
+    if trainer.progress_bar_callback:
+        trainer.progress_bar_callback.enable()
 
     return new_size
 
 
 def __scale_batch_dump_params(trainer: "pl.Trainer") -> Dict[str, Any]:
     return {
+        "max_steps": trainer.fit_loop.max_steps,
+        "global_step": trainer.global_step,
+        "logger": trainer.logger,
+        "callbacks": trainer.callbacks,
         "auto_scale_batch_size": trainer.auto_scale_batch_size,
         "auto_lr_find": trainer.auto_lr_find,
-        "global_step": trainer.global_step,
-        "max_steps": trainer.fit_loop.max_steps,
         "limit_train_batches": trainer.limit_train_batches,
     }
 
@@ -99,6 +108,8 @@ def __scale_batch_reset_params(trainer: "pl.Trainer", steps_per_trial: int) -> N
     trainer.auto_scale_batch_size = None  # prevent recursion
     trainer.auto_lr_find = False  # avoid lr find being called multiple times
     trainer.fit_loop.max_steps = steps_per_trial  # take few steps
+    trainer.logger = DummyLogger() if trainer.logger is not None else None
+    trainer.callbacks = []  # not needed before full run
     trainer.limit_train_batches = 1.0
 
 
@@ -107,6 +118,8 @@ def __scale_batch_restore_params(trainer: "pl.Trainer", params: Dict[str, Any]) 
     trainer.auto_lr_find = params["auto_lr_find"]
     trainer.fit_loop.global_step = params["global_step"]
     trainer.fit_loop.max_steps = params["max_steps"]
+    trainer.logger = params["logger"]
+    trainer.callbacks = params["callbacks"]
     trainer.limit_train_batches = params["limit_train_batches"]
 
 
